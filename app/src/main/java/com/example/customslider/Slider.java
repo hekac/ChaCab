@@ -7,6 +7,7 @@ import android.graphics.Point;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.MotionEvent;
 import android.view.View;
 
 import androidx.annotation.Nullable;
@@ -16,37 +17,38 @@ public class Slider extends View {
 
 
 
-    // dimensions minimales du slider (en dp) : uniquement les éléments critiques
+    // Dimensions minimales du slider (en dp).
+    // Uniquement les éléments critiques
     final static float MIN_BAR_LENGTH = 160;
     final static float MIN_CURSOR_DIAMETER = 30;
 
-    // dimensions par défaut du slider (en dp)
+    // Dimensions par défaut du slider (en dp)
     final static float DEFAULT_BAR_WIDTH = 20;
     final static float DEFAULT_BAR_LENGTH = 160;
     final static float DEFAULT_CURSOR_DIAMETER = 40;
 
-    // longueur de la glissière du slider
+    // Longueur de la glissière du slider
     private float mBarLength;
 
-    // largeur de la glissière du slider
+    // Largeur de la glissière du slider
     private float mBarWidth;
 
-    // diamètre de la poignée du slider
+    // Diamètre de la poignée du slider
     private float mCursorDiameter;
 
-    // pinceaux
+    // Pinceaux
     private Paint mCursorPaint = null;
     private Paint mValueBarPaint = null;
     private Paint mBarPaint = null;
 
-    // couleurs
+    // Couleurs
     private int mDisabledColor;
     private int mCursorColor;
     private int mBarColor;
     private int mValueBarColor;
 
 
-    // état du Slider
+    // Etat du Slider
     private boolean mEnabled = true;
 
 
@@ -58,6 +60,11 @@ public class Slider extends View {
 
     // Valeur maximale du Slider
     private float mMax = 100;
+
+    // Etats spécifiques aux actions
+    private boolean isDoubleClick = false;
+    private boolean moveActionDisabled = false;
+
 
     /**
      * Constructeur dynamique
@@ -95,7 +102,7 @@ public class Slider extends View {
         mBarPaint = new Paint();
         mValueBarPaint = new Paint();
 
-        // suppression du repliement
+        // Suppression du repliement
         mCursorPaint.setAntiAlias(true);
         mBarPaint.setAntiAlias(true);
         mValueBarPaint.setAntiAlias(true);
@@ -126,7 +133,7 @@ public class Slider extends View {
         mBarPaint.setStrokeWidth(mBarWidth);
         mValueBarPaint.setStrokeWidth(mBarWidth);
 
-        // initialisation des dimensions minimales
+        // Initialisation des dimensions minimales
         int minWidth = (int) dpToPixel(MIN_CURSOR_DIAMETER)+ getPaddingLeft() + getPaddingRight();
         int minHeight = (int) dpToPixel(MIN_BAR_LENGTH + MIN_CURSOR_DIAMETER) + getPaddingTop() + getPaddingBottom();
 
@@ -134,6 +141,8 @@ public class Slider extends View {
         setMinimumWidth(minWidth);
 
     }
+
+
 
     /**
      * Wrapper passage DIP en pixels
@@ -143,6 +152,7 @@ public class Slider extends View {
     private float dpToPixel(float valueInDp) {
         return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, valueInDp, getResources().getDisplayMetrics());
     }
+
 
 
     /**
@@ -160,6 +170,8 @@ public class Slider extends View {
         return new Point(x, y);
     }
 
+
+
     /**
      * Normalisation de la valeur entre 0 et 1.
      * @param value
@@ -170,6 +182,8 @@ public class Slider extends View {
         return (value - mMin) / (mMax - mMin);
     }
 
+
+
     /**
      * Dénormalisation vers la valeur du curseur
      * @param ratio : valeur entre 0 (min) et 1 (max)
@@ -178,6 +192,22 @@ public class Slider extends View {
     private float ratioToValue(float ratio) {
         return ratio * (mMax - mMin) + mMin;
     }
+
+
+
+    /**
+     * Convertions d'une position écran en une valeur du Slider
+     * @param position : position écran
+     * @return valeur slider
+     */
+    private float toValue(Point position){
+        float ratio = 1 - (position.y -getPaddingTop()-mCursorDiameter/2)/mBarLength;
+        if(ratio < 0) ratio = 0;
+        if(ratio > 1) ratio = 1;
+        return ratioToValue(ratio);
+
+    }
+
 
 
     /**
@@ -216,7 +246,9 @@ public class Slider extends View {
         int suggestedWidth, suggestedHeight, width, height;
 
 
-        // la dimension souhaitée est ajustée pour au moins atteindre la dimension minimale acceptable
+
+        // la dimension souhaitée est ajustée pour au moins atteindre
+        // la dimension minimale acceptable
         suggestedWidth = Math.max(getSuggestedMinimumWidth(), (int) Math.max(mCursorDiameter, mBarWidth) + getPaddingLeft() + getPaddingRight());
         suggestedHeight = Math.max(getSuggestedMinimumHeight(), (int) (mBarLength + mCursorDiameter) + getPaddingTop() + getPaddingBottom());
         width = resolveSize(suggestedWidth, widthMeasureSpec);
@@ -226,5 +258,76 @@ public class Slider extends View {
     }
 
 
+    /*************************************************
+     * Interface
+     ************************************************/
 
+
+    private SliderChangeListener mSliderChangeListener; /**< Référence vers le listener*/
+
+    /**
+     * Setter de listener
+     * @param sliderChangeListener
+     */
+    public void setSliderChangeListener(SliderChangeListener sliderChangeListener){
+        mSliderChangeListener = sliderChangeListener;
+    }
+
+    /**
+     * Interface Listener
+     */
+    public interface SliderChangeListener{
+        void onChange(float value);
+        void onDoubleClick(float value);
+    }
+
+
+
+    /*************************************************
+     * ACTIONS
+     ************************************************/
+
+    /**
+     * Redéfinition de la gestion des actions
+     * @param event : type d'action et paramètres associés
+     * @return : indique que le gestionnaire a consommé l'évènement
+     * sinon transfert de l'évènement aux éventuels Views en overlap
+     */
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+
+        switch(event.getAction()) {
+            case MotionEvent.ACTION_MOVE :
+                if(! moveActionDisabled) {
+                    mSliderChangeListener.onChange(mValue);
+                    mValue = toValue(new Point((int) event.getX(), (int) event.getY()));
+                    invalidate();
+                }
+                break;
+
+            case MotionEvent.ACTION_DOWN :
+                moveActionDisabled = true;
+                if(isDoubleClick){
+                    mValue = mMin;
+                    mSliderChangeListener.onDoubleClick(mValue);
+                    invalidate();
+                } else
+                    isDoubleClick = true;
+
+                postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        moveActionDisabled = false;
+                    }
+                },100);
+                postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                    isDoubleClick = false;
+                    }
+                },300);
+                break;
+        }
+        return true;
+    }
 }
