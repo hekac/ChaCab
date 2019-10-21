@@ -47,7 +47,6 @@ public class Slider extends View {
     private int mBarColor;
     private int mValueBarColor;
 
-
     // Etat du Slider
     private boolean mEnabled = true;
 
